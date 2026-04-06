@@ -219,7 +219,9 @@ function App() {
           types: [
             {
               description: "Audio Files",
-              accept: { "audio/*": [".ogg", ".mp3", ".wav", ".m4a", ".webm"] }
+              accept: {
+                "audio/*": [".ogg", ".mp3", ".wav", ".m4a", ".webm", ".aac", ".flac", ".opus", ".oga"]
+              }
             }
           ]
         });
@@ -377,7 +379,7 @@ function App() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="audio/*"
+              accept="audio/*,.ogg,.mp3,.wav,.m4a,.webm,.aac,.flac,.opus,.oga"
               className="hidden"
               onChange={onFallbackFileChange}
             />
