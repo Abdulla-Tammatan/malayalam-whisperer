@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const SARVAM_API_BASE_URL = Deno.env.get("SARVAM_API_BASE_URL") ?? "https://api.sarvam.ai";
 const SARVAM_API_KEY = Deno.env.get("SARVAM_API_KEY") ?? "";
+const SARVAM_MAX_SYNC_AUDIO_BYTES = Number(Deno.env.get("SARVAM_MAX_SYNC_AUDIO_BYTES") ?? 10 * 1024 * 1024);
 
 type TranslationResult = {
   original: string;
@@ -37,6 +38,35 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 const pickString = (value: unknown, fallback = ""): string =>
   typeof value === "string" && value.trim().length > 0 ? value : fallback;
 
+const SUPPORTED_AUDIO_MIME_PREFIXES = [
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/aac",
+  "audio/ogg",
+  "audio/opus",
+  "audio/flac",
+  "audio/x-flac",
+  "audio/mp4",
+  "audio/m4a",
+  "audio/amr",
+  "audio/webm",
+  "audio/x-ms-wma"
+];
+
+const SUPPORTED_AUDIO_EXTENSIONS = [
+  ".mp3",
+  ".wav",
+  ".aac",
+  ".ogg",
+  ".opus",
+  ".flac",
+  ".m4a",
+  ".amr",
+  ".wma",
+  ".webm"
+];
+
 function normalizeLanguageCode(input: string): string {
   const value = input.trim();
   return value.length > 0 ? value : "unknown";
@@ -44,6 +74,27 @@ function normalizeLanguageCode(input: string): string {
 
 function chooseTargetLanguage(languageCode: string): string {
   return languageCode.toLowerCase().startsWith("en") ? "hi-IN" : "en-IN";
+}
+
+function isAudioSupported(file: File): { ok: boolean; reason?: string } {
+  const normalizedType = file.type.toLowerCase();
+  const normalizedName = file.name.toLowerCase();
+
+  const mimeSupported =
+    normalizedType.length === 0 ||
+    SUPPORTED_AUDIO_MIME_PREFIXES.some((prefix) => normalizedType.startsWith(prefix));
+  const extensionSupported = SUPPORTED_AUDIO_EXTENSIONS.some((ext) => normalizedName.endsWith(ext));
+
+  if (!mimeSupported && !extensionSupported) {
+    return {
+      ok: false,
+      reason:
+        `Unsupported audio format (mime="${file.type}", name="${file.name}"). ` +
+        "Use mp3/wav/aac/ogg/opus/flac/m4a/amr/wma/webm."
+    };
+  }
+
+  return { ok: true };
 }
 
 async function parseJsonResponse(path: string, response: Response): Promise<Record<string, unknown>> {
@@ -312,6 +363,33 @@ serve(async (request: Request) => {
       const audio = formData.get("audio");
       if (!(audio instanceof File)) {
         return errorResponse("audio form-data file is required", 400);
+      }
+
+      const audioMeta = {
+        name: audio.name,
+        mime: audio.type,
+        size_bytes: audio.size
+      };
+      console.log("audio_upload_meta", audioMeta);
+
+      const support = isAudioSupported(audio);
+      if (!support.ok) {
+        return errorResponse(support.reason ?? "Unsupported audio format", 400, {
+          audio_meta: audioMeta
+        });
+      }
+
+      if (audio.size > SARVAM_MAX_SYNC_AUDIO_BYTES) {
+        return errorResponse(
+          `Audio file too large for synchronous STT (${audio.size} bytes). ` +
+            "Please use Sarvam Batch API for longer files.",
+          413,
+          {
+            audio_meta: audioMeta,
+            max_sync_audio_bytes: SARVAM_MAX_SYNC_AUDIO_BYTES,
+            recommendation: "Use batch speech-to-text endpoint for long recordings."
+          }
+        );
       }
 
       const { transcript, languageCode } = await transcribeAudio(audio);
