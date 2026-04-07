@@ -369,6 +369,9 @@ function App() {
             {status}
           </p>
         </header>
+        <p className="mb-4 rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-[10px] text-slate-300">
+          endpoint: {SUPABASE_FUNCTION_URL} ({HAS_CUSTOM_FUNCTION_URL ? "env" : "fallback"})
+        </p>
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
