@@ -1,0 +1,8 @@
+:{$PORT}
+
+root * /usr/share/caddy
+encode zstd gzip
+file_server
+
+# SPA fallback
+try_files {path} /index.html
