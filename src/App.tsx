@@ -19,9 +19,30 @@ type ProxyResponse = {
 
 const SUPABASE_FUNCTION_URL =
   import.meta.env.VITE_SUPABASE_FUNCTION_URL?.trim() || "/functions/v1/sarvam-proxy";
+const HAS_CUSTOM_FUNCTION_URL = Boolean(import.meta.env.VITE_SUPABASE_FUNCTION_URL?.trim());
 
 const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 const isSafari = /Safari/i.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS/i.test(navigator.userAgent);
+
+function extractErrorMessage(raw: string): string {
+  const text = raw.trim();
+  if (!text) return "Unknown error";
+
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    const candidate = parsed.error || parsed.message || text;
+    return candidate.length > 140 ? `${candidate.slice(0, 140)}...` : candidate;
+  } catch {
+    return text.length > 140 ? `${text.slice(0, 140)}...` : text;
+  }
+}
+
+function toMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message.length > 140 ? `${error.message.slice(0, 140)}...` : error.message;
+  }
+  return "Unexpected error";
+}
 
 function App() {
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
@@ -46,6 +67,16 @@ function App() {
 
     if (isIOS && isSafari && !standalone) {
       setShowInstallPrompt(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (HAS_CUSTOM_FUNCTION_URL) return;
+
+    const host = window.location.hostname;
+    const isLocalHost = host === "localhost" || host === "127.0.0.1";
+    if (!isLocalHost) {
+      setStatus("Set VITE_SUPABASE_FUNCTION_URL in Railway; current endpoint is local fallback.");
     }
   }, []);
 
@@ -279,7 +310,8 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        const message = extractErrorMessage(await response.text());
+        throw new Error(`HTTP ${response.status}: ${message}`);
       }
 
       const payload = (await response.json()) as ProxyResponse;
@@ -288,7 +320,7 @@ function App() {
       setStatus("Audio translated.");
     } catch (error) {
       console.error(error);
-      setStatus("Audio translation failed.");
+      setStatus(`Audio translation failed: ${toMessage(error)}`);
     } finally {
       setIsBusy(false);
     }
@@ -309,7 +341,8 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        const message = extractErrorMessage(await response.text());
+        throw new Error(`HTTP ${response.status}: ${message}`);
       }
 
       const payload = (await response.json()) as ProxyResponse;
@@ -318,7 +351,7 @@ function App() {
       setStatus("Text translated.");
     } catch (error) {
       console.error(error);
-      setStatus("Text translation failed.");
+      setStatus(`Text translation failed: ${toMessage(error)}`);
     } finally {
       setIsBusy(false);
     }
