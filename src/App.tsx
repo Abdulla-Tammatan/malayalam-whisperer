@@ -24,22 +24,47 @@ const HAS_CUSTOM_FUNCTION_URL = Boolean(import.meta.env.VITE_SUPABASE_FUNCTION_U
 const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 const isSafari = /Safari/i.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS/i.test(navigator.userAgent);
 
+function compactString(input: string, max = 220): string {
+  return input.length > max ? `${input.slice(0, max)}...` : input;
+}
+
 function extractErrorMessage(raw: string): string {
   const text = raw.trim();
   if (!text) return "Unknown error";
 
   try {
-    const parsed = JSON.parse(text) as { error?: string; message?: string };
-    const candidate = parsed.error || parsed.message || text;
-    return candidate.length > 140 ? `${candidate.slice(0, 140)}...` : candidate;
+    const parsed = JSON.parse(text) as {
+      error?: string;
+      message?: string;
+      details?: {
+        provider_status?: number;
+        provider_path?: string;
+        provider_payload?: unknown;
+      };
+    };
+
+    let candidate = parsed.error || parsed.message || text;
+    const details = parsed.details;
+
+    if (details?.provider_status || details?.provider_path || details?.provider_payload) {
+      const providerBits: string[] = [];
+      if (details.provider_status) providerBits.push(`provider_status=${details.provider_status}`);
+      if (details.provider_path) providerBits.push(`provider_path=${details.provider_path}`);
+      if (details.provider_payload !== undefined) {
+        providerBits.push(`provider_payload=${JSON.stringify(details.provider_payload)}`);
+      }
+      candidate = `${candidate} | ${providerBits.join(" | ")}`;
+    }
+
+    return compactString(candidate);
   } catch {
-    return text.length > 140 ? `${text.slice(0, 140)}...` : text;
+    return compactString(text);
   }
 }
 
 function toMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
-    return error.message.length > 140 ? `${error.message.slice(0, 140)}...` : error.message;
+    return compactString(error.message);
   }
   return "Unexpected error";
 }

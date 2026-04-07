@@ -10,6 +10,20 @@ type TranslationResult = {
   target_language: string;
 };
 
+class SarvamHttpError extends Error {
+  status: number;
+  payload: Record<string, unknown>;
+  path: string;
+
+  constructor(path: string, status: number, message: string, payload: Record<string, unknown>) {
+    super(message);
+    this.name = "SarvamHttpError";
+    this.status = status;
+    this.payload = payload;
+    this.path = path;
+  }
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
@@ -32,12 +46,21 @@ function chooseTargetLanguage(languageCode: string): string {
   return languageCode.toLowerCase().startsWith("en") ? "hi-IN" : "en-IN";
 }
 
-async function parseJsonResponse(response: Response): Promise<Record<string, unknown>> {
+async function parseJsonResponse(path: string, response: Response): Promise<Record<string, unknown>> {
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
 
   if (!response.ok) {
-    throw new Error(
-      `Sarvam API error (${response.status}): ${pickString(payload.error) || pickString(payload.message)}`
+    const message =
+      pickString(payload.error) ||
+      pickString(payload.message) ||
+      pickString(payload.detail) ||
+      "Unknown Sarvam error";
+
+    throw new SarvamHttpError(
+      path,
+      response.status,
+      `Sarvam API error (${response.status}): ${message}`,
+      payload
     );
   }
 
@@ -53,7 +76,7 @@ async function sarvamFetch(path: string, init: RequestInit): Promise<Record<stri
     }
   });
 
-  return parseJsonResponse(response);
+  return parseJsonResponse(path, response);
 }
 
 async function getSarvamClient(): Promise<Record<string, unknown> | null> {
@@ -255,8 +278,13 @@ function jsonResponse(payload: TranslationResult, status = 200): Response {
   });
 }
 
-function errorResponse(message: string, status = 500): Response {
-  return new Response(JSON.stringify({ error: message }), {
+function errorResponse(message: string, status = 500, details?: unknown): Response {
+  const payload: Record<string, unknown> = { error: message };
+  if (details !== undefined) {
+    payload.details = details;
+  }
+
+  return new Response(JSON.stringify(payload), {
     status,
     headers: {
       "Content-Type": "application/json",
@@ -317,6 +345,14 @@ serve(async (request: Request) => {
       target_language: targetLanguage
     });
   } catch (error) {
+    if (error instanceof SarvamHttpError) {
+      return errorResponse(error.message, 500, {
+        provider_status: error.status,
+        provider_path: error.path,
+        provider_payload: error.payload
+      });
+    }
+
     const message = error instanceof Error ? error.message : "Unexpected server error";
     return errorResponse(message, 500);
   }
