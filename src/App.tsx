@@ -433,8 +433,10 @@ function App() {
 
           <aside className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-100">Feature Modes</h2>
-            <p className="mb-2 text-xs text-slate-300">1) WhatsApp English audio -> OpenAI Whisper -> Sarvam Malayalam</p>
-            <p className="text-xs text-slate-300">2) Recorded Malayalam speech -> Sarvam -> English text</p>
+            <p className="mb-2 text-xs text-slate-300">
+              1) WhatsApp English audio to OpenAI Whisper to Sarvam Malayalam
+            </p>
+            <p className="text-xs text-slate-300">2) Recorded Malayalam speech to Sarvam to English text</p>
             <p className="mt-4 text-xs text-slate-400">
               Pick/Share audio for feature 1. Record directly in app for feature 2.
             </p>
