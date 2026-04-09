@@ -160,7 +160,7 @@ function App() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-6xl bg-white px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden border-0 shadow-none">
         <CardHeader className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">AI Audio Translator</p>
           <CardTitle className="text-2xl sm:text-3xl">English Audio to Malayalam Text</CardTitle>
