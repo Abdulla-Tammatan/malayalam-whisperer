@@ -12,10 +12,9 @@ A high-performance Progressive Web App built with Vite + React + Tailwind CSS.
   - PWA share sheet (`.ogg` from WhatsApp supported)
 - Live waveform visualisation using Web Audio API.
 - Chat-style translation timeline (original + translated text).
-- Language routing logic:
-  - detected English -> Hindi (`hi-IN`)
-  - detected non-English -> English (`en-IN`)
-- Supabase Edge Function proxy to keep Sarvam API key off the frontend.
+- Feature flow 1: WhatsApp English audio -> OpenAI Whisper transcription -> Sarvam Malayalam translation.
+- Feature flow 2: In-app recorded Malayalam speech -> Sarvam transcription -> English text.
+- Supabase Edge Function proxy to keep API keys off the frontend.
 
 ## Tech Stack
 
@@ -53,6 +52,7 @@ npm run dev
 ```bash
 supabase secrets set SARVAM_API_KEY=YOUR_SARVAM_API_KEY
 supabase secrets set SARVAM_API_BASE_URL=https://api.sarvam.ai
+supabase secrets set OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ```
 
 3. Deploy function:
@@ -63,14 +63,14 @@ supabase functions deploy sarvam-proxy
 
 4. Put deployed function URL in `.env` as `VITE_SUPABASE_FUNCTION_URL`.
 
-## Sarvam API Flow
+## Audio Processing Flow
 
-- Audio:
-  - `/speech-to-text` with `model: saaras:v3`, `language_code: unknown`
-  - translate transcript with `/translate`
-- Text:
-  - detect language using `/text-lid`
-  - translate using `/translate`
+- WhatsApp English audio:
+  - OpenAI `/v1/audio/transcriptions` with `model=whisper-1`, `language=en`
+  - Sarvam `/translate` from `en-IN` -> `ml-IN`
+- Recorded Malayalam speech:
+  - Sarvam `/speech-to-text` with `model=saaras:v3`
+  - Sarvam `/translate` from `ml-IN` -> `en-IN`
 
 ## iOS Optimization
 

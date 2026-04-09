@@ -1,8 +1,8 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type TranslationMessage = {
   id: string;
-  kind: "audio" | "text";
+  kind: "audio";
   original: string;
   translated: string;
   sourceLanguage: string;
@@ -71,10 +71,12 @@ function toMessage(error: unknown): string {
 
 function App() {
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
-  const [textInput, setTextInput] = useState("");
   const [status, setStatus] = useState<string>("Ready");
   const [isBusy, setIsBusy] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedMode, setSelectedMode] = useState<"whatsapp_en_to_ml" | "recorded_ml_to_en">(
+    "whatsapp_en_to_ml"
+  );
   const [isRecording, setIsRecording] = useState(false);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
 
@@ -119,7 +121,8 @@ function App() {
           type: blob.type || "audio/ogg"
         });
         setSelectedFile(sharedFile);
-        setStatus("Audio received from share sheet.");
+        setSelectedMode("whatsapp_en_to_ml");
+        setStatus("WhatsApp audio received. Ready for English -> Malayalam translation.");
       } catch (error) {
         console.error(error);
       } finally {
@@ -247,9 +250,10 @@ function App() {
         });
 
         setSelectedFile(file);
+        setSelectedMode("recorded_ml_to_en");
         stopVisualiser();
         cleanupRecorder();
-        setStatus("Voice note captured. Ready for translation.");
+        setStatus("Recording captured. Ready for Malayalam speech -> English text.");
       };
 
       recorderRef.current = recorder;
@@ -285,7 +289,8 @@ function App() {
         if (!handles || handles.length === 0) return;
         const file = await handles[0].getFile();
         setSelectedFile(file);
-        setStatus(`${file.name} ready.`);
+        setSelectedMode("whatsapp_en_to_ml");
+        setStatus(`${file.name} ready for English audio -> Malayalam translation.`);
         return;
       } catch (error) {
         if ((error as DOMException).name !== "AbortError") {
@@ -302,10 +307,11 @@ function App() {
     const file = event.target.files?.[0];
     if (!file) return;
     setSelectedFile(file);
-    setStatus(`${file.name} ready.`);
+    setSelectedMode("whatsapp_en_to_ml");
+    setStatus(`${file.name} ready for English audio -> Malayalam translation.`);
   };
 
-  const pushMessage = (kind: "audio" | "text", payload: ProxyResponse) => {
+  const pushMessage = (kind: "audio", payload: ProxyResponse) => {
     const chatMessage: TranslationMessage = {
       id: crypto.randomUUID(),
       kind,
@@ -323,11 +329,16 @@ function App() {
     if (!selectedFile || isBusy) return;
 
     setIsBusy(true);
-    setStatus("Transcribing audio with saaras:v3...");
+    setStatus(
+      selectedMode === "whatsapp_en_to_ml"
+        ? "Transcribing with OpenAI Whisper and translating to Malayalam..."
+        : "Transcribing Malayalam speech with Sarvam and translating to English..."
+    );
 
     try {
       const formData = new FormData();
       formData.set("audio", selectedFile);
+      formData.set("mode", selectedMode);
 
       const response = await fetch(SUPABASE_FUNCTION_URL, {
         method: "POST",
@@ -342,41 +353,10 @@ function App() {
       const payload = (await response.json()) as ProxyResponse;
       pushMessage("audio", payload);
       setSelectedFile(null);
-      setStatus("Audio translated.");
+      setStatus("Audio translated successfully.");
     } catch (error) {
       console.error(error);
       setStatus(`Audio translation failed: ${toMessage(error)}`);
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
-  const submitText = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!textInput.trim() || isBusy) return;
-
-    setIsBusy(true);
-    setStatus("Detecting text language and translating...");
-
-    try {
-      const response = await fetch(SUPABASE_FUNCTION_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: textInput.trim() })
-      });
-
-      if (!response.ok) {
-        const message = extractErrorMessage(await response.text());
-        throw new Error(`HTTP ${response.status}: ${message}`);
-      }
-
-      const payload = (await response.json()) as ProxyResponse;
-      pushMessage("text", payload);
-      setTextInput("");
-      setStatus("Text translated.");
-    } catch (error) {
-      console.error(error);
-      setStatus(`Text translation failed: ${toMessage(error)}`);
     } finally {
       setIsBusy(false);
     }
@@ -400,7 +380,12 @@ function App() {
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
-            <h2 className="mb-3 text-sm font-semibold text-slate-100">Audio Input</h2>
+            <h2 className="mb-1 text-sm font-semibold text-slate-100">Audio Input</h2>
+            <p className="mb-2 text-xs text-slate-400">
+              {selectedMode === "whatsapp_en_to_ml"
+                ? "Mode: WhatsApp English audio -> Malayalam"
+                : "Mode: Recorded Malayalam speech -> English text"}
+            </p>
             <canvas ref={canvasRef} width={460} height={100} className="mb-3 h-24 w-full rounded-lg bg-slate-900" />
 
             <div className="flex flex-wrap gap-2">
@@ -428,7 +413,7 @@ function App() {
                 className="rounded-xl border border-cyan-400/60 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-60"
                 disabled={!selectedFile || isBusy}
               >
-                Translate Audio
+                {selectedMode === "whatsapp_en_to_ml" ? "English -> Malayalam" : "Malayalam -> English"}
               </button>
             </div>
 
@@ -446,28 +431,14 @@ function App() {
             />
           </div>
 
-          <form onSubmit={submitText} className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
-            <h2 className="mb-3 text-sm font-semibold text-slate-100">Text Input</h2>
-            <label htmlFor="textInput" className="mb-2 block text-xs text-slate-400">
-              Auto-detected via "text-lid" then translated (English to Hindi and Hindi to English)
-            </label>
-            <textarea
-              id="textInput"
-              rows={4}
-              value={textInput}
-              onChange={(event) => setTextInput(event.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-slate-100 outline-none ring-cyan-400 focus:ring"
-              placeholder="Type any sentence..."
-              disabled={isBusy}
-            />
-            <button
-              type="submit"
-              className="mt-3 rounded-xl border border-emerald-400/60 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-60"
-              disabled={isBusy || !textInput.trim()}
-            >
-              Translate Text
-            </button>
-          </form>
+          <aside className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
+            <h2 className="mb-3 text-sm font-semibold text-slate-100">Feature Modes</h2>
+            <p className="mb-2 text-xs text-slate-300">1) WhatsApp English audio -> OpenAI Whisper -> Sarvam Malayalam</p>
+            <p className="text-xs text-slate-300">2) Recorded Malayalam speech -> Sarvam -> English text</p>
+            <p className="mt-4 text-xs text-slate-400">
+              Pick/Share audio for feature 1. Record directly in app for feature 2.
+            </p>
+          </aside>
         </div>
       </section>
 

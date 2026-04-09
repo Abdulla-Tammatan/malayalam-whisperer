@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const SARVAM_API_BASE_URL = Deno.env.get("SARVAM_API_BASE_URL") ?? "https://api.sarvam.ai";
 const SARVAM_API_KEY = Deno.env.get("SARVAM_API_KEY") ?? "";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const SARVAM_MAX_SYNC_AUDIO_BYTES = Number(Deno.env.get("SARVAM_MAX_SYNC_AUDIO_BYTES") ?? 10 * 1024 * 1024);
 
 type TranslationResult = {
@@ -128,6 +129,40 @@ async function sarvamFetch(path: string, init: RequestInit): Promise<Record<stri
   });
 
   return parseJsonResponse(path, response);
+}
+
+async function transcribeWithWhisperEnglish(file: File): Promise<string> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("Missing OPENAI_API_KEY secret.");
+  }
+
+  const formData = new FormData();
+  formData.set("file", file);
+  formData.set("model", "whisper-1");
+  formData.set("language", "en");
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`
+    },
+    body: formData
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    const message =
+      pickString(asRecord(payload.error).message) ||
+      pickString(payload.message) ||
+      "Unknown OpenAI transcription error";
+    throw new Error(`OpenAI Whisper error (${response.status}): ${message}`);
+  }
+
+  const transcript = pickString(payload.text);
+  if (!transcript) {
+    throw new Error("OpenAI Whisper returned empty transcript.");
+  }
+  return transcript;
 }
 
 async function getSarvamClient(): Promise<Record<string, unknown> | null> {
@@ -361,6 +396,7 @@ serve(async (request: Request) => {
     if (request.headers.get("content-type")?.includes("multipart/form-data")) {
       const formData = await request.formData();
       const audio = formData.get("audio");
+      const mode = pickString(formData.get("mode"), "whatsapp_en_to_ml");
       if (!(audio instanceof File)) {
         return errorResponse("audio form-data file is required", 400);
       }
@@ -392,17 +428,31 @@ serve(async (request: Request) => {
         );
       }
 
-      const { transcript, languageCode } = await transcribeAudio(audio);
-      const sourceLanguage = normalizeLanguageCode(languageCode);
-      const targetLanguage = chooseTargetLanguage(sourceLanguage);
-      const translated = await translateText(transcript, sourceLanguage, targetLanguage);
+      if (mode === "whatsapp_en_to_ml") {
+        const transcriptEn = await transcribeWithWhisperEnglish(audio);
+        const translatedMl = await translateText(transcriptEn, "en-IN", "ml-IN");
 
-      return jsonResponse({
-        original: transcript,
-        translated,
-        detected_language: sourceLanguage,
-        target_language: targetLanguage
-      });
+        return jsonResponse({
+          original: transcriptEn,
+          translated: translatedMl,
+          detected_language: "en-IN",
+          target_language: "ml-IN"
+        });
+      }
+
+      if (mode === "recorded_ml_to_en") {
+        const { transcript, languageCode } = await transcribeAudio(audio);
+        const translatedEn = await translateText(transcript, "ml-IN", "en-IN");
+
+        return jsonResponse({
+          original: transcript,
+          translated: translatedEn,
+          detected_language: normalizeLanguageCode(languageCode || "ml-IN"),
+          target_language: "en-IN"
+        });
+      }
+
+      return errorResponse(`Unsupported audio mode: ${mode}`, 400);
     }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
