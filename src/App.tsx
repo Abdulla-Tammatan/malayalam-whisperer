@@ -42,14 +42,8 @@ function App() {
   const [status, setStatus] = useState<string>("Ready");
   const [isBusy, setIsBusy] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const animationRef = useRef<number | null>(null);
 
   useEffect(() => {
     const loadSharedAudio = async () => {
@@ -81,134 +75,10 @@ function App() {
     void loadSharedAudio();
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (animationRef.current !== null) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      recorderRef.current = null;
-      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-      if (audioContextRef.current) {
-        void audioContextRef.current.close();
-      }
-    };
-  }, []);
-
   const canUseFileSystemAccess = useMemo(
     () => typeof window !== "undefined" && "showOpenFilePicker" in window,
     []
   );
-
-  const startVisualiser = (stream: MediaStream) => {
-    const audioContext = new AudioContext();
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 1024;
-
-    const source = audioContext.createMediaStreamSource(stream);
-    source.connect(analyser);
-
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-
-    audioContextRef.current = audioContext;
-
-    const draw = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const context = canvas.getContext("2d");
-      if (!context) return;
-
-      analyser.getByteTimeDomainData(dataArray);
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.lineWidth = 2;
-      context.strokeStyle = "#334155";
-      context.beginPath();
-
-      const sliceWidth = canvas.width / bufferLength;
-      let x = 0;
-
-      for (let index = 0; index < bufferLength; index += 1) {
-        const amplitude = dataArray[index] / 128;
-        const y = (amplitude * canvas.height) / 2;
-
-        if (index === 0) {
-          context.moveTo(x, y);
-        } else {
-          context.lineTo(x, y);
-        }
-        x += sliceWidth;
-      }
-
-      context.lineTo(canvas.width, canvas.height / 2);
-      context.stroke();
-
-      animationRef.current = requestAnimationFrame(draw);
-    };
-
-    draw();
-  };
-
-  const stopVisualiser = () => {
-    if (animationRef.current !== null) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
-
-    if (audioContextRef.current) {
-      void audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-  };
-
-  const startRecording = async () => {
-    if (isRecording) return;
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-
-      const mimeType = ["audio/mp4", "audio/webm;codecs=opus", "audio/ogg;codecs=opus"].find((type) =>
-        MediaRecorder.isTypeSupported(type)
-      );
-
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      const chunks: BlobPart[] = [];
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      };
-
-      recorder.onstop = () => {
-        const cleanMime = (recorder.mimeType || "audio/webm").split(";")[0].trim().toLowerCase();
-        const extension = cleanMime.includes("mp4") ? "m4a" : cleanMime.includes("ogg") ? "ogg" : "webm";
-        const blob = new Blob(chunks, { type: cleanMime || "audio/webm" });
-        const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
-          type: blob.type
-        });
-
-        setSelectedFile(file);
-        setStatus("Recording ready. Translate to Malayalam.");
-        setIsRecording(false);
-        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
-        stopVisualiser();
-      };
-
-      recorderRef.current = recorder;
-      recorder.start(200);
-      startVisualiser(stream);
-      setIsRecording(true);
-      setStatus("Recording...");
-    } catch (error) {
-      console.error(error);
-      setStatus("Microphone permission denied or unavailable.");
-    }
-  };
-
-  const stopRecording = () => {
-    recorderRef.current?.stop();
-  };
 
   const pickAudioFile = async () => {
     if (canUseFileSystemAccess) {
@@ -289,41 +159,38 @@ function App() {
   };
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-5xl bg-slate-50 px-4 py-8 md:px-6">
-      <Card>
-        <CardHeader>
+    <main className="mx-auto min-h-screen w-full max-w-6xl bg-slate-50 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+      <Card className="overflow-hidden">
+        <CardHeader className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">AI Audio Translator</p>
-          <CardTitle>English Audio to Malayalam Text</CardTitle>
-          <CardDescription>{status}</CardDescription>
+          <CardTitle className="text-2xl sm:text-3xl">English Audio to Malayalam Text</CardTitle>
+          <CardDescription className="text-sm sm:text-base">{status}</CardDescription>
         </CardHeader>
 
-        <CardContent className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
+        <CardContent className="grid gap-4 lg:grid-cols-2 lg:gap-6">
           <Card className="shadow-none">
             <CardHeader>
               <CardTitle className="text-base">Audio Input</CardTitle>
               <CardDescription>
-                Share from WhatsApp, pick an audio file, or record a short English note.
+                Share from WhatsApp or choose an English audio file, then translate to Malayalam.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <canvas ref={canvasRef} width={460} height={100} className="mb-4 h-24 w-full rounded-md bg-slate-100" />
-
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="secondary" onClick={isRecording ? stopRecording : startRecording} disabled={isBusy}>
-                  {isRecording ? "Stop Recording" : "Start Recording"}
-                </Button>
-                <Button type="button" variant="outline" onClick={pickAudioFile} disabled={isBusy}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Button type="button" variant="outline" onClick={pickAudioFile} disabled={isBusy} className="w-full sm:w-auto">
                   Pick Audio
                 </Button>
-                <Button type="button" onClick={submitAudio} disabled={!selectedFile || isBusy}>
+                <Button type="button" onClick={submitAudio} disabled={!selectedFile || isBusy} className="w-full sm:w-auto">
                   Translate
                 </Button>
               </div>
 
-              {selectedFile && (
-                <p className="mt-3 text-sm text-slate-600">
+              {selectedFile ? (
+                <p className="mt-3 break-all text-sm text-slate-600">
                   Selected file: <span className="font-medium text-slate-900">{selectedFile.name}</span>
                 </p>
+              ) : (
+                <p className="mt-3 text-sm text-slate-500">No file selected.</p>
               )}
 
               <input
