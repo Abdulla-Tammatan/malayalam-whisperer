@@ -1,8 +1,9 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 
 type TranslationMessage = {
   id: string;
-  kind: "audio";
   original: string;
   translated: string;
   sourceLanguage: string;
@@ -19,66 +20,21 @@ type ProxyResponse = {
 
 const SUPABASE_FUNCTION_URL =
   import.meta.env.VITE_SUPABASE_FUNCTION_URL?.trim() || "/functions/v1/sarvam-proxy";
-const HAS_CUSTOM_FUNCTION_URL = Boolean(import.meta.env.VITE_SUPABASE_FUNCTION_URL?.trim());
 
-const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-const isSafari = /Safari/i.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS/i.test(navigator.userAgent);
-
-function compactString(input: string, max = 220): string {
+function compactMessage(input: string, max = 180): string {
   return input.length > max ? `${input.slice(0, max)}...` : input;
 }
 
-function extractErrorMessage(raw: string): string {
+function parseError(raw: string): string {
   const text = raw.trim();
   if (!text) return "Unknown error";
 
   try {
-    const parsed = JSON.parse(text) as {
-      error?: string;
-      message?: string;
-      details?: {
-        provider_status?: number;
-        provider_path?: string;
-        provider_payload?: unknown;
-      };
-    };
-
-    let candidate = parsed.error || parsed.message || text;
-    const details = parsed.details;
-
-    if (details?.provider_status || details?.provider_path || details?.provider_payload) {
-      const providerBits: string[] = [];
-      if (details.provider_status) providerBits.push(`provider_status=${details.provider_status}`);
-      if (details.provider_path) providerBits.push(`provider_path=${details.provider_path}`);
-      if (details.provider_payload !== undefined) {
-        providerBits.push(`provider_payload=${JSON.stringify(details.provider_payload)}`);
-      }
-      candidate = `${candidate} | ${providerBits.join(" | ")}`;
-    }
-
-    return compactString(candidate);
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    return compactMessage(parsed.error || parsed.message || text);
   } catch {
-    return compactString(text);
+    return compactMessage(text);
   }
-}
-
-function toMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return compactString(error.message);
-  }
-  return "Unexpected error";
-}
-
-function cleanMime(mime: string): string {
-  return mime.split(";")[0].trim().toLowerCase();
-}
-
-function extensionFromMime(mime: string): string {
-  if (mime.includes("ogg")) return "ogg";
-  if (mime.includes("mp4") || mime.includes("m4a")) return "m4a";
-  if (mime.includes("mpeg") || mime.includes("mp3")) return "mp3";
-  if (mime.includes("wav")) return "wav";
-  return "webm";
 }
 
 function App() {
@@ -86,11 +42,7 @@ function App() {
   const [status, setStatus] = useState<string>("Ready");
   const [isBusy, setIsBusy] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedMode, setSelectedMode] = useState<"whatsapp_en_to_ml" | "recorded_ml_to_en">(
-    "whatsapp_en_to_ml"
-  );
   const [isRecording, setIsRecording] = useState(false);
-  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -98,26 +50,6 @@ function App() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-
-    if (isIOS && isSafari && !standalone) {
-      setShowInstallPrompt(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (HAS_CUSTOM_FUNCTION_URL) return;
-
-    const host = window.location.hostname;
-    const isLocalHost = host === "localhost" || host === "127.0.0.1";
-    if (!isLocalHost) {
-      setStatus("Set VITE_SUPABASE_FUNCTION_URL in Railway; current endpoint is local fallback.");
-    }
-  }, []);
 
   useEffect(() => {
     const loadSharedAudio = async () => {
@@ -129,12 +61,11 @@ function App() {
         if (!response.ok) return;
 
         const blob = await response.blob();
-        const sharedFile = new File([blob], `shared-${Date.now()}.ogg`, {
+        const sharedFile = new File([blob], `whatsapp-${Date.now()}.ogg`, {
           type: blob.type || "audio/ogg"
         });
         setSelectedFile(sharedFile);
-        setSelectedMode("whatsapp_en_to_ml");
-        setStatus("WhatsApp audio received. Ready for English -> Malayalam translation.");
+        setStatus("WhatsApp audio received. Ready to translate to Malayalam.");
       } catch (error) {
         console.error(error);
       } finally {
@@ -152,8 +83,14 @@ function App() {
 
   useEffect(() => {
     return () => {
-      stopVisualiser();
-      cleanupRecorder();
+      if (animationRef.current !== null) {
+        cancelAnimationFrame(animationRef.current);
+      }
+      recorderRef.current = null;
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      if (audioContextRef.current) {
+        void audioContextRef.current.close();
+      }
     };
   }, []);
 
@@ -185,7 +122,7 @@ function App() {
       analyser.getByteTimeDomainData(dataArray);
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.lineWidth = 2;
-      context.strokeStyle = "#22d3ee";
+      context.strokeStyle = "#334155";
       context.beginPath();
 
       const sliceWidth = canvas.width / bufferLength;
@@ -218,22 +155,10 @@ function App() {
       animationRef.current = null;
     }
 
-    const audioContext = audioContextRef.current;
-    if (audioContext) {
-      void audioContext.close();
+    if (audioContextRef.current) {
+      void audioContextRef.current.close();
       audioContextRef.current = null;
     }
-  };
-
-  const cleanupRecorder = () => {
-    recorderRef.current = null;
-
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
-
-    setIsRecording(false);
   };
 
   const startRecording = async () => {
@@ -255,18 +180,19 @@ function App() {
       };
 
       recorder.onstop = () => {
-        const sanitizedMime = cleanMime(recorder.mimeType || "audio/webm");
-        const blob = new Blob(chunks, { type: sanitizedMime || "audio/webm" });
-        const extension = extensionFromMime(sanitizedMime);
+        const cleanMime = (recorder.mimeType || "audio/webm").split(";")[0].trim().toLowerCase();
+        const extension = cleanMime.includes("mp4") ? "m4a" : cleanMime.includes("ogg") ? "ogg" : "webm";
+        const blob = new Blob(chunks, { type: cleanMime || "audio/webm" });
         const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
           type: blob.type
         });
 
         setSelectedFile(file);
-        setSelectedMode("recorded_ml_to_en");
+        setStatus("Recording ready. Translate to Malayalam.");
+        setIsRecording(false);
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
         stopVisualiser();
-        cleanupRecorder();
-        setStatus("Recording captured. Ready for Malayalam speech -> English text.");
       };
 
       recorderRef.current = recorder;
@@ -302,8 +228,7 @@ function App() {
         if (!handles || handles.length === 0) return;
         const file = await handles[0].getFile();
         setSelectedFile(file);
-        setSelectedMode("whatsapp_en_to_ml");
-        setStatus(`${file.name} ready for English audio -> Malayalam translation.`);
+        setStatus(`${file.name} selected.`);
         return;
       } catch (error) {
         if ((error as DOMException).name !== "AbortError") {
@@ -320,38 +245,18 @@ function App() {
     const file = event.target.files?.[0];
     if (!file) return;
     setSelectedFile(file);
-    setSelectedMode("whatsapp_en_to_ml");
-    setStatus(`${file.name} ready for English audio -> Malayalam translation.`);
-  };
-
-  const pushMessage = (kind: "audio", payload: ProxyResponse) => {
-    const chatMessage: TranslationMessage = {
-      id: crypto.randomUUID(),
-      kind,
-      original: payload.original,
-      translated: payload.translated,
-      sourceLanguage: payload.detected_language,
-      targetLanguage: payload.target_language,
-      createdAt: new Date().toISOString()
-    };
-
-    setMessages((prev) => [chatMessage, ...prev]);
+    setStatus(`${file.name} selected.`);
   };
 
   const submitAudio = async () => {
     if (!selectedFile || isBusy) return;
 
     setIsBusy(true);
-    setStatus(
-      selectedMode === "whatsapp_en_to_ml"
-        ? "Transcribing with OpenAI Whisper and translating to Malayalam..."
-        : "Transcribing Malayalam speech with Sarvam and translating to English..."
-    );
+    setStatus("Transcribing with Whisper and translating to Malayalam...");
 
     try {
       const formData = new FormData();
       formData.set("audio", selectedFile);
-      formData.set("mode", selectedMode);
 
       const response = await fetch(SUPABASE_FUNCTION_URL, {
         method: "POST",
@@ -359,145 +264,104 @@ function App() {
       });
 
       if (!response.ok) {
-        const message = extractErrorMessage(await response.text());
-        throw new Error(`HTTP ${response.status}: ${message}`);
+        throw new Error(`HTTP ${response.status}: ${parseError(await response.text())}`);
       }
 
       const payload = (await response.json()) as ProxyResponse;
-      pushMessage("audio", payload);
+      const message: TranslationMessage = {
+        id: crypto.randomUUID(),
+        original: payload.original,
+        translated: payload.translated,
+        sourceLanguage: payload.detected_language,
+        targetLanguage: payload.target_language,
+        createdAt: new Date().toISOString()
+      };
+      setMessages((prev) => [message, ...prev]);
       setSelectedFile(null);
-      setStatus("Audio translated successfully.");
+      setStatus("Translation complete.");
     } catch (error) {
       console.error(error);
-      setStatus(`Audio translation failed: ${toMessage(error)}`);
+      const msg = error instanceof Error ? compactMessage(error.message) : "Unexpected error";
+      setStatus(`Audio translation failed: ${msg}`);
     } finally {
       setIsBusy(false);
     }
   };
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col px-4 py-6 md:px-8">
-      <section className="rounded-3xl border border-cyan-200/20 bg-slate-900/50 p-6 shadow-glow backdrop-blur-md">
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-[0.24em] text-cyan-200">AI Audio Translator</p>
-            <h1 className="mt-1 text-2xl font-semibold text-slate-100">Share, Speak, Translate</h1>
-          </div>
-          <p className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100">
-            {status}
-          </p>
-        </header>
-        <p className="mb-4 rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 font-mono text-[10px] text-slate-300">
-          endpoint: {SUPABASE_FUNCTION_URL} ({HAS_CUSTOM_FUNCTION_URL ? "env" : "fallback"})
-        </p>
+    <main className="mx-auto min-h-screen w-full max-w-5xl bg-slate-50 px-4 py-8 md:px-6">
+      <Card>
+        <CardHeader>
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">AI Audio Translator</p>
+          <CardTitle>English Audio to Malayalam Text</CardTitle>
+          <CardDescription>{status}</CardDescription>
+        </CardHeader>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
-            <h2 className="mb-1 text-sm font-semibold text-slate-100">Audio Input</h2>
-            <p className="mb-2 text-xs text-slate-400">
-              {selectedMode === "whatsapp_en_to_ml"
-                ? "Mode: WhatsApp English audio -> Malayalam"
-                : "Mode: Recorded Malayalam speech -> English text"}
-            </p>
-            <canvas ref={canvasRef} width={460} height={100} className="mb-3 h-24 w-full rounded-lg bg-slate-900" />
+        <CardContent className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
+          <Card className="shadow-none">
+            <CardHeader>
+              <CardTitle className="text-base">Audio Input</CardTitle>
+              <CardDescription>
+                Share from WhatsApp, pick an audio file, or record a short English note.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <canvas ref={canvasRef} width={460} height={100} className="mb-4 h-24 w-full rounded-md bg-slate-100" />
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={isRecording ? stopRecording : startRecording}
-                className="rounded-xl bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
-                disabled={isBusy}
-              >
-                {isRecording ? "Stop Recording" : "Start Recording"}
-              </button>
-
-              <button
-                type="button"
-                onClick={pickAudioFile}
-                className="rounded-xl border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-100"
-                disabled={isBusy}
-              >
-                {canUseFileSystemAccess ? "Pick Audio (FSA)" : "Pick Audio"}
-              </button>
-
-              <button
-                type="button"
-                onClick={submitAudio}
-                className="rounded-xl border border-cyan-400/60 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-60"
-                disabled={!selectedFile || isBusy}
-              >
-                {selectedMode === "whatsapp_en_to_ml" ? "English -> Malayalam" : "Malayalam -> English"}
-              </button>
-            </div>
-
-            {selectedFile && (
-              <p className="mt-3 text-xs text-slate-300">
-                Selected: <span className="font-mono text-cyan-100">{selectedFile.name}</span>
-              </p>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="audio/*,.ogg,.mp3,.wav,.m4a,.webm,.aac,.flac,.opus,.oga"
-              className="hidden"
-              onChange={onFallbackFileChange}
-            />
-          </div>
-
-          <aside className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
-            <h2 className="mb-3 text-sm font-semibold text-slate-100">Feature Modes</h2>
-            <p className="mb-2 text-xs text-slate-300">
-              1) WhatsApp English audio to OpenAI Whisper to Sarvam Malayalam
-            </p>
-            <p className="text-xs text-slate-300">2) Recorded Malayalam speech to Sarvam to English text</p>
-            <p className="mt-4 text-xs text-slate-400">
-              Pick/Share audio for feature 1. Record directly in app for feature 2.
-            </p>
-          </aside>
-        </div>
-      </section>
-
-      <section className="mt-5 flex-1 rounded-3xl border border-slate-700 bg-slate-900/60 p-4 md:p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-200">Conversation</h3>
-          <p className="text-xs text-slate-400">Newest first</p>
-        </div>
-
-        <div className="space-y-3">
-          {messages.length === 0 && (
-            <p className="rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">
-              Share an audio file from WhatsApp or record a voice note to begin.
-            </p>
-          )}
-
-          {messages.map((message) => (
-            <article key={message.id} className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
-              <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-                <span>{message.kind.toUpperCase()}</span>
-                <span>{new Date(message.createdAt).toLocaleTimeString()}</span>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="secondary" onClick={isRecording ? stopRecording : startRecording} disabled={isBusy}>
+                  {isRecording ? "Stop Recording" : "Start Recording"}
+                </Button>
+                <Button type="button" variant="outline" onClick={pickAudioFile} disabled={isBusy}>
+                  Pick Audio
+                </Button>
+                <Button type="button" onClick={submitAudio} disabled={!selectedFile || isBusy}>
+                  Translate
+                </Button>
               </div>
-              <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-100">{message.original}</p>
-              <p className="mt-2 rounded-xl bg-cyan-900/40 p-3 text-sm text-cyan-100">{message.translated}</p>
-              <p className="mt-2 text-xs text-slate-400">
-                {message.sourceLanguage} {"->"} {message.targetLanguage}
-              </p>
-            </article>
-          ))}
-        </div>
-      </section>
 
-      {showInstallPrompt && (
-        <aside className="fixed inset-x-4 bottom-4 z-20 rounded-2xl border border-cyan-300/30 bg-slate-900 p-4 shadow-glow">
-          <p className="text-sm text-slate-100">Install on iPhone: tap Safari Share, then "Add to Home Screen".</p>
-          <button
-            type="button"
-            onClick={() => setShowInstallPrompt(false)}
-            className="mt-2 rounded-lg border border-slate-500 px-2 py-1 text-xs text-slate-300"
-          >
-            Dismiss
-          </button>
-        </aside>
-      )}
+              {selectedFile && (
+                <p className="mt-3 text-sm text-slate-600">
+                  Selected file: <span className="font-medium text-slate-900">{selectedFile.name}</span>
+                </p>
+              )}
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*,.ogg,.mp3,.wav,.m4a,.webm,.aac,.flac,.opus,.oga"
+                className="hidden"
+                onChange={onFallbackFileChange}
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none">
+            <CardHeader>
+              <CardTitle className="text-base">Translations</CardTitle>
+              <CardDescription>Most recent first.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {messages.length === 0 ? (
+                <p className="rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+                  No translations yet.
+                </p>
+              ) : (
+                messages.map((item) => (
+                  <article key={item.id} className="rounded-md border border-slate-200 bg-white p-3">
+                    <p className="text-xs text-slate-500">{new Date(item.createdAt).toLocaleTimeString()}</p>
+                    <p className="mt-2 text-sm text-slate-800">{item.original}</p>
+                    <p className="mt-2 rounded-md bg-slate-100 p-2 text-sm font-medium text-slate-900">{item.translated}</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {item.sourceLanguage} to {item.targetLanguage}
+                    </p>
+                  </article>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </CardContent>
+      </Card>
     </main>
   );
 }

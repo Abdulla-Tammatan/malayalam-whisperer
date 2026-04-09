@@ -418,7 +418,6 @@ serve(async (request: Request) => {
     if (request.headers.get("content-type")?.includes("multipart/form-data")) {
       const formData = await request.formData();
       const audio = formData.get("audio");
-      const mode = pickString(formData.get("mode"), "whatsapp_en_to_ml");
       if (!(audio instanceof File)) {
         return errorResponse("audio form-data file is required", 400);
       }
@@ -450,31 +449,15 @@ serve(async (request: Request) => {
         );
       }
 
-      if (mode === "whatsapp_en_to_ml") {
-        const transcriptEn = await transcribeWithWhisperEnglish(audio);
-        const translatedMl = await translateText(transcriptEn, "en-IN", "ml-IN");
+      const transcriptEn = await transcribeWithWhisperEnglish(audio);
+      const translatedMl = await translateText(transcriptEn, "en-IN", "ml-IN");
 
-        return jsonResponse({
-          original: transcriptEn,
-          translated: translatedMl,
-          detected_language: "en-IN",
-          target_language: "ml-IN"
-        });
-      }
-
-      if (mode === "recorded_ml_to_en") {
-        const { transcript, languageCode } = await transcribeAudio(audio);
-        const translatedEn = await translateText(transcript, "ml-IN", "en-IN");
-
-        return jsonResponse({
-          original: transcript,
-          translated: translatedEn,
-          detected_language: normalizeLanguageCode(languageCode || "ml-IN"),
-          target_language: "en-IN"
-        });
-      }
-
-      return errorResponse(`Unsupported audio mode: ${mode}`, 400);
+      return jsonResponse({
+        original: transcriptEn,
+        translated: translatedMl,
+        detected_language: "en-IN",
+        target_language: "ml-IN"
+      });
     }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;

@@ -12,8 +12,7 @@ A high-performance Progressive Web App built with Vite + React + Tailwind CSS.
   - PWA share sheet (`.ogg` from WhatsApp supported)
 - Live waveform visualisation using Web Audio API.
 - Chat-style translation timeline (original + translated text).
-- Feature flow 1: WhatsApp English audio -> OpenAI Whisper transcription -> Sarvam Malayalam translation.
-- Feature flow 2: In-app recorded Malayalam speech -> Sarvam transcription -> English text.
+- Primary flow: WhatsApp/Uploaded English audio -> OpenAI Whisper transcription -> Sarvam Malayalam translation.
 - Supabase Edge Function proxy to keep API keys off the frontend.
 
 ## Tech Stack
@@ -65,12 +64,9 @@ supabase functions deploy sarvam-proxy
 
 ## Audio Processing Flow
 
-- WhatsApp English audio:
+- WhatsApp/Uploaded English audio:
   - OpenAI `/v1/audio/transcriptions` with `model=whisper-1`, `language=en`
   - Sarvam `/translate` from `en-IN` -> `ml-IN`
-- Recorded Malayalam speech:
-  - Sarvam `/speech-to-text` with `model=saaras:v3`
-  - Sarvam `/translate` from `ml-IN` -> `en-IN`
 
 ## iOS Optimization
 
