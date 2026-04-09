@@ -68,6 +68,26 @@ const SUPPORTED_AUDIO_EXTENSIONS = [
   ".webm"
 ];
 
+function stripMimeParameters(mime: string): string {
+  return mime.split(";")[0].trim().toLowerCase();
+}
+
+function normalizeAudioMime(mime: string): string {
+  const base = stripMimeParameters(mime);
+  if (base === "audio/oga") return "audio/ogg";
+  return base;
+}
+
+function normalizedAudioFile(file: File): File {
+  const normalizedType = normalizeAudioMime(file.type);
+  if (!normalizedType || normalizedType === file.type) return file;
+
+  return new File([file], file.name, {
+    type: normalizedType,
+    lastModified: Date.now()
+  });
+}
+
 function normalizeLanguageCode(input: string): string {
   const value = input.trim();
   return value.length > 0 ? value : "unknown";
@@ -78,7 +98,7 @@ function chooseTargetLanguage(languageCode: string): string {
 }
 
 function isAudioSupported(file: File): { ok: boolean; reason?: string } {
-  const normalizedType = file.type.toLowerCase();
+  const normalizedType = normalizeAudioMime(file.type);
   const normalizedName = file.name.toLowerCase();
 
   const mimeSupported =
@@ -136,8 +156,9 @@ async function transcribeWithWhisperEnglish(file: File): Promise<string> {
     throw new Error("Missing OPENAI_API_KEY secret.");
   }
 
+  const uploadFile = normalizedAudioFile(file);
   const formData = new FormData();
-  formData.set("file", file);
+  formData.set("file", uploadFile);
   formData.set("model", "whisper-1");
   formData.set("language", "en");
 
@@ -298,6 +319,7 @@ async function translateText(text: string, sourceLanguage: string, targetLanguag
 }
 
 async function transcribeAudio(file: File): Promise<{ transcript: string; languageCode: string }> {
+  const uploadFile = normalizedAudioFile(file);
   const client = await getSarvamClient();
 
   try {
@@ -311,7 +333,7 @@ async function transcribeAudio(file: File): Promise<{ transcript: string; langua
 
     if (transcribeMethod) {
       const result = asRecord(
-        await transcribeMethod(file, {
+        await transcribeMethod(uploadFile, {
           model: "saaras:v3",
           mode: "transcribe",
           language_code: "unknown",
@@ -336,7 +358,7 @@ async function transcribeAudio(file: File): Promise<{ transcript: string; langua
   }
 
   const formData = new FormData();
-  formData.set("file", file);
+  formData.set("file", uploadFile);
   formData.set("model", "saaras:v3");
   formData.set("mode", "transcribe");
   formData.set("language_code", "unknown");

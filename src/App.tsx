@@ -69,6 +69,18 @@ function toMessage(error: unknown): string {
   return "Unexpected error";
 }
 
+function cleanMime(mime: string): string {
+  return mime.split(";")[0].trim().toLowerCase();
+}
+
+function extensionFromMime(mime: string): string {
+  if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("mp4") || mime.includes("m4a")) return "m4a";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "mp3";
+  if (mime.includes("wav")) return "wav";
+  return "webm";
+}
+
 function App() {
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [status, setStatus] = useState<string>("Ready");
@@ -231,7 +243,7 @@ function App() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
-      const mimeType = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].find((type) =>
+      const mimeType = ["audio/mp4", "audio/webm;codecs=opus", "audio/ogg;codecs=opus"].find((type) =>
         MediaRecorder.isTypeSupported(type)
       );
 
@@ -243,8 +255,9 @@ function App() {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-        const extension = recorder.mimeType.includes("ogg") ? "ogg" : "webm";
+        const sanitizedMime = cleanMime(recorder.mimeType || "audio/webm");
+        const blob = new Blob(chunks, { type: sanitizedMime || "audio/webm" });
+        const extension = extensionFromMime(sanitizedMime);
         const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
           type: blob.type
         });
