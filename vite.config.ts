@@ -10,7 +10,7 @@ export default defineConfig({
       strategies: "injectManifest",
       srcDir: "src",
       filename: "sw.ts",
-      includeAssets: ["icons/*", "favicon.svg"],
+      includeAssets: ["icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "favicon.svg"],
       manifest: {
         name: "AI Audio Translator",
         short_name: "Translator",
@@ -24,10 +24,20 @@ export default defineConfig({
         categories: ["productivity", "utilities"],
         icons: [
           {
-            src: "/icons/icon.svg",
+            src: "/icons/icon-192.png",
+            sizes: "192x192",
+            type: "image/png"
+          },
+          {
+            src: "/icons/icon-512.png",
             sizes: "512x512",
-            type: "image/svg+xml",
-            purpose: "any maskable"
+            type: "image/png"
+          },
+          {
+            src: "/icons/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable"
           }
         ],
         share_target: {
